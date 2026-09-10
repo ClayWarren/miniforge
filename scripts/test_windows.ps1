@@ -91,7 +91,11 @@ try {
             }
             & "$prefix/Library/bin/mamba.exe" --version
             Require-Success 'Offline Mamba'
-        } finally { Remove-NetFirewallRule -Name $rule -ErrorAction SilentlyContinue }
+        } finally {
+            Remove-NetFirewallRule -Name $rule -ErrorAction SilentlyContinue
+            # The blocked probe can leave a negative DNS entry cached by Windows.
+            Clear-DnsClientCache
+        }
         Invoke-WebRequest $probeUrl -Method Head -TimeoutSec 20 | Out-Null
         Uninstall-Miniforge $prefix
         "PASS: $Architecture offline installer acceptance."
