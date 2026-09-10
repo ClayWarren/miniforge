@@ -1,0 +1,30 @@
+name: Windows ARM64 installer acceptance
+on:
+  push:
+    branches: [codex/windows-arm64-installer-tests]
+permissions:
+  contents: read
+  actions: read
+jobs:
+  acceptance:
+    runs-on: windows-11-arm
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - name: Download the built prototype
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh run download 34527627394 --repo ClayWarren/miniforge --name miniforge-win-arm64-prototype --dir .
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+      - name: Native installer acceptance
+        shell: pwsh
+        run: ./prototype/acceptance.ps1
+      - name: Retain acceptance evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: miniforge-arm64-acceptance
+          path: prototype-results/*
+          if-no-files-found: error
