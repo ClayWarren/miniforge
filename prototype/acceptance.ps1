@@ -4,12 +4,27 @@ Start-Transcript -Path prototype-results/acceptance.log
 function Require-Success([string]$what) {
     if ($LASTEXITCODE -ne 0) { throw "$what exited $LASTEXITCODE" }
 }
+function Assert-Arm64PE([string]$path) {
+    $stream = [System.IO.File]::OpenRead($path)
+    $reader = [System.IO.BinaryReader]::new($stream)
+    try {
+        $stream.Position = 0x3c
+        $offset = $reader.ReadInt32()
+        $stream.Position = $offset
+        if ($reader.ReadUInt32() -ne 0x00004550) { throw "Invalid PE header: $path" }
+        $machine = $reader.ReadUInt16()
+        if ($machine -ne 0xAA64) { throw "Non-ARM64 binary: $path ($machine)" }
+        "AA64: $path"
+    } finally { $reader.Dispose() }
+}
 function Install-Prototype([string]$prefix) {
     $p = Start-Process $script:installer -NoNewWindow -ArgumentList "/InstallationType=JustMe /RegisterPython=0 /AddToPath=0 /S /D=$prefix" -PassThru
     if (-not $p.WaitForExit(300000)) { $p.Kill(); throw 'Installer timeout' }
     if ($p.ExitCode -ne 0) { throw "Installer exited $($p.ExitCode)" }
     & "$prefix/python.exe" -c "import platform,struct; assert platform.machine().lower()=='arm64'; assert struct.calcsize('P')==8; print('Native ARM64 Python verified')"
     Require-Success 'Python architecture'
+    Assert-Arm64PE "$prefix/python.exe"
+    Assert-Arm64PE "$prefix/Library/bin/mamba.exe"
 }
 function Uninstall-Prototype([string]$prefix) {
     $u = @(Get-ChildItem -LiteralPath $prefix -Filter 'Uninstall-*.exe')
@@ -58,6 +73,16 @@ try {
     $links = @(Save-Shortcuts $prefix 'shortcuts-installed')
     if ($links.Count -lt 1) { throw 'No installed shortcut targets this prefix' }
     if (-not ($links | Where-Object { $_.arguments -like '*activate.bat*' })) { throw 'Prompt shortcut does not invoke activation' }
+    $prompt = @($links | Where-Object { $_.arguments -like '*activate.bat*' })[0]
+    $probePath = Join-Path $env:RUNNER_TEMP 'shortcut-probe.json'
+    # Run the shortcut's stored activation command, changing /K to /C only so the probe exits.
+    $probeArgs = ($prompt.arguments -replace '(?i)^/K\s+', '/D /C call ') + ' && python -c "import json,os,platform; print(json.dumps(dict(prefix=os.environ.get(''CONDA_PREFIX''),machine=platform.machine())))" > "' + $probePath + '"'
+    $probeProcess = Start-Process $prompt.target -ArgumentList $probeArgs -NoNewWindow -Wait -PassThru
+    if ($probeProcess.ExitCode -ne 0 -or -not (Test-Path $probePath)) { throw 'Shortcut activation command failed' }
+    $probe = Get-Content $probePath -Raw | ConvertFrom-Json
+    if ($probe.prefix -ne $prefix -or $probe.machine.ToLower() -ne 'arm64') { throw 'Shortcut activated incorrect environment' }
+    Copy-Item $probePath prototype-results/shortcut-runtime.json
+
     $child = Join-Path $env:RUNNER_TEMP 'MiniforgeARM64Child'
     & $conda create -y -p $child --override-channels -c conda-forge python=3.14 zlib
     Require-Success 'Conda create'
@@ -124,5 +149,5 @@ conda deactivate
     } finally { Remove-NetFirewallRule -Name $rule -ErrorAction SilentlyContinue }
     Invoke-WebRequest $probeUrl -Method Head -TimeoutSec 20 | Out-Null
     Uninstall-Prototype $offline
-    'PASS: native install, shortcut definition, CMD/PowerShell activation, Conda/Mamba package operations, verified network-blocked offline installation, uninstall.' | Set-Content prototype-results/acceptance-result.txt
+    'PASS: native install, shortcut activation, CMD/PowerShell activation, Conda/Mamba package operations, verified network-blocked offline installation, uninstall.' | Set-Content prototype-results/acceptance-result.txt
 } finally { Stop-Transcript }
