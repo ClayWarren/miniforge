@@ -1,0 +1,71 @@
+name: Windows ARM64 integration build with unpublished prerequisites
+on:
+  push:
+    branches: [codex/windows-arm64-integration-build]
+permissions:
+  contents: read
+  actions: read
+jobs:
+  build:
+    runs-on: windows-11-arm
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: conda-incubator/setup-miniconda@8ee1f361103df19b6f8c8655fd3967a8ecb162d5 # v4.0.1
+        with:
+          miniforge-version: latest
+          architecture: x64
+          use-mamba: true
+      - name: Fetch retained Conda package
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh run download 34523353459 --repo ClayWarren/conda-feedstock --name conda320-win-arm64 --dir local-channel/win-arm64
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+      - name: Build unchanged Constructor PR 108 recipe
+        shell: bash
+        run: |
+          source "${CONDA}/Scripts/activate"
+          conda install -y -n base -c conda-forge --override-channels rattler-build conda-index
+          rattler-build build --recipe validation/constructor-recipe/recipe.yaml --variant-config validation/variants.yaml --target-platform win-64 --output-dir local-channel
+          python validation/prepare.py
+      - name: Build and test with integration scripts
+        shell: bash
+        env:
+          ARCH: arm64
+          TARGET_PLATFORM: win-arm64
+          OS_NAME: Windows
+          MINIFORGE_CHANNEL_NAME: validation
+        run: |
+          source "${CONDA}/Scripts/activate"
+          export CONDARC="$(cygpath -w "$PWD/validation/condarc")"
+          source build_miniforge_win.sh
+      - name: Retain installer and evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: arm64-integration-build
+          path: |
+            build/*
+            local-channel/noarch/constructor-3.17.1*.conda
+            local-channel/noarch/constructor-3.17.1*.tar.bz2
+  offline:
+    needs: build
+    runs-on: windows-11-arm
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: arm64-integration-build
+          path: .
+      - name: Offline install and uninstall
+        shell: pwsh
+        run: ./scripts/test_windows.ps1 -Architecture arm64 -Offline
+      - name: Retain acceptance evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: arm64-integration-offline
+          path: build/windows-tests-*
