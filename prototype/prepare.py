@@ -1,11 +1,11 @@
 """Prepare an explicitly unpublished Miniforge ARM64 prototype."""
 from pathlib import Path
-import hashlib, shutil, subprocess, sys, urllib.request
+import hashlib, os, shutil, subprocess, sys, urllib.request
 root = Path(__file__).resolve().parents[1]
 archive = root / 'constructor-3.17.1.tar.gz'
 archive.write_bytes(urllib.request.urlopen('https://github.com/conda/constructor/archive/refs/tags/3.17.1.tar.gz').read())
 assert hashlib.sha256(archive.read_bytes()).hexdigest() == 'be546968befef2034066535ad454f153f24bae1cb3b5cfe7d52f8ce874c021d9'
-subprocess.run([sys.executable, '-m', 'pip', 'install', '--no-deps', str(archive)], check=True)
+subprocess.run([sys.executable, '-m', 'pip', 'install', '--no-deps', str(archive)], check=True, env={**os.environ, 'SETUPTOOLS_SCM_PRETEND_VERSION': '3.17.1'})
 pkg = root / 'local-channel/win-arm64/conda-26.7.2-py314hc6eccd4_1.conda'
 assert hashlib.sha256(pkg.read_bytes()).hexdigest() == '3d039566740eb1c89987100a03d9b06e4ac4c1a562f12700516d5af1d59d47ec'
 subprocess.run([sys.executable, '-m', 'conda_index', str(root / 'local-channel')], check=True)
