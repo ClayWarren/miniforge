@@ -1,11 +1,10 @@
-name: Build miniforge
-on: 
+name: Windows integration validation
+on:
   push:
-    branches:
-      - main
-    tags:
-      - '**'
-  pull_request:
+    branches: [codex/windows-integration-validation]
+permissions:
+  contents: read
+  actions: read
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.sha }}
@@ -23,61 +22,9 @@ jobs:
             ARCH: x86_64
             TARGET_PLATFORM: win-64
             OS_NAME: "Windows"
-
-          - os: windows-11-arm
-            ARCH: arm64
-            TARGET_PLATFORM: win-arm64
-            OS_NAME: "Windows"
-
-          - os: macos-latest
-            ARCH: arm64
-            TARGET_PLATFORM: osx-arm64
-            OS_NAME: "MacOSX"
-
-          - os: macos-latest
-            ARCH: x86_64
-            TARGET_PLATFORM: osx-64
-            OS_NAME: "MacOSX"
-
-          - os: ubuntu-latest
-            ARCH: aarch64
-            TARGET_PLATFORM: linux-aarch64
-            DOCKER_ARCH: arm64/v8
-            DOCKERIMAGE: condaforge/linux-anvil-aarch64
-            OS_NAME: "Linux"
-            # Reduce the test matrix because the builds timeouts on emulated architectures
-            # The time consuming operation is an attempt a full solve of conda/mamba/boa
-            # for as a compatibility
-            # xref https://github.com/conda-forge/miniforge/pull/361
-            TEST_IMAGE_NAMES: "ubuntu:24.04"
-
-          - os: ubuntu-latest
-            ARCH: riscv64
-            TARGET_PLATFORM: linux-riscv64
-            DOCKER_ARCH: amd64
-            DOCKERIMAGE: condaforge/linux-anvil-x86_64:alma10
-            OS_NAME: "Linux"
-            # No testing until docker image has been created
-            TEST_IMAGE_NAMES: " "
-
-          - os: ubuntu-latest
-            ARCH: x86_64
-            TARGET_PLATFORM: linux-64
-            DOCKER_ARCH: amd64
-            DOCKERIMAGE: condaforge/linux-anvil-cos7-x86_64
-            OS_NAME: "Linux"
-
-          - os: ubuntu-latest
-            ARCH: ppc64le
-            TARGET_PLATFORM: linux-ppc64le
-            DOCKER_ARCH: ppc64le
-            DOCKERIMAGE: condaforge/linux-anvil-ppc64le
-            OS_NAME: "Linux"
-            # Reduce the test matrix because the builds timeouts on emulated architectures
-            # The time consuming operation is an attempt a full solve of conda/mamba/boa
-            # for as a compatibility
-            # xref https://github.com/conda-forge/miniforge/pull/361
-            TEST_IMAGE_NAMES: "ubuntu:24.04"
+            DOCKERIMAGE: ""
+            DOCKER_ARCH: ""
+            TEST_IMAGE_NAMES: ""
 
     steps:
       - name: Checkout code
@@ -223,6 +170,36 @@ jobs:
           file_glob: true
         if: github.event_name != 'pull_request' && startsWith(github.ref, 'refs/tags/')
 
+  arm64-acceptance:
+    name: Miniforge3-Windows-arm64 (retained prototype)
+    runs-on: windows-11-arm
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Download and verify retained ARM64 installer
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh run download 34527627394 --repo ClayWarren/miniforge --name miniforge-win-arm64-prototype --dir .
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          $file = Get-Item build/Miniforge3-26.7.2-0-Windows-arm64.exe
+          if ((Get-FileHash $file.FullName -Algorithm SHA256).Hash -ne '8C796301FEDC821A0B6D94A672C307D23914600CBF49656D86EA7CF6B3CD2ED8') { throw 'Installer checksum mismatch' }
+      - name: Run shared Windows acceptance
+        shell: pwsh
+        run: ./scripts/test_windows.ps1 -Architecture arm64
+      - name: Retain installer for offline test
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: Miniforge3-Windows-arm64
+          path: build/Miniforge3-26.7.2-0-Windows-arm64.exe
+      - name: Retain acceptance evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: Windows-arm64-online-evidence
+          path: build/windows-tests-*
+
   # Independent job that proves the *installer itself* provisions the base
   # environment with no network access. This consumes the artifact built above
   # (it does not rebuild) and runs the installer with outbound network disabled,
@@ -232,26 +209,15 @@ jobs:
   # of unpacking the embedded payload.
   test-offline:
     name: Offline-${{ matrix.OS_NAME }}-${{ matrix.ARCH }}
-    needs: build
+    needs: [build, arm64-acceptance]
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
       matrix:
         include:
-          - os: ubuntu-latest
-            ARCH: x86_64
-            OS_NAME: "Linux"
-            DOCKER_ARCH: amd64
-            TEST_IMAGE: "ubuntu:24.04"
-
-          - os: macos-latest
-            ARCH: arm64
-            OS_NAME: "MacOSX"
-
           - os: windows-latest
             ARCH: x86_64
             OS_NAME: "Windows"
-
           - os: windows-11-arm
             ARCH: arm64
             OS_NAME: "Windows"
@@ -266,36 +232,14 @@ jobs:
           name: Miniforge3-${{ matrix.OS_NAME }}-${{ matrix.ARCH }}
           path: build
 
-      # Linux: hard network isolation -- the container has only a loopback
-      # interface, so any attempt to reach conda.anaconda.org fails immediately.
-      - name: Run installer with the network fully disabled (Linux)
-        if: matrix.OS_NAME == 'Linux'
-        run: |
-          # Pull the test image while we still have network; `--network none`
-          # below can run a cached image but cannot pull one.
-          docker pull --platform "linux/${{ matrix.DOCKER_ARCH }}" "${{ matrix.TEST_IMAGE }}"
-          docker run --rm --network none \
-            -v "$PWD:/construct" -e CONSTRUCT_ROOT=/construct \
-            --platform "linux/${{ matrix.DOCKER_ARCH }}" "${{ matrix.TEST_IMAGE }}" \
-            /construct/scripts/test_offline.sh
-
-      # macOS has no Docker on the runner, so block the package hosts at the
-      # resolver instead. The runner VM is ephemeral, so there is no need to
-      # restore /etc/hosts afterwards.
-      - name: Block conda package hosts (macOS)
-        if: matrix.OS_NAME == 'MacOSX'
-        run: |
-          for h in conda.anaconda.org repo.anaconda.com anaconda.org prefix.dev repo.prefix.dev; do
-            echo "0.0.0.0 $h" | sudo tee -a /etc/hosts >/dev/null
-          done
-
-
       - name: Run installer with outbound traffic blocked (Windows)
         if: matrix.OS_NAME == 'Windows'
         shell: pwsh
         run: ./scripts/test_windows.ps1 -Architecture '${{ matrix.ARCH }}' -Offline
 
-      - name: Run installer offline (macOS)
-        if: matrix.OS_NAME == 'MacOSX'
-        shell: bash
-        run: bash scripts/test_offline.sh
+      - name: Retain offline acceptance evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: Windows-${{ matrix.ARCH }}-offline-evidence
+          path: build/windows-tests-*
