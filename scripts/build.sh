@@ -73,11 +73,18 @@ elif [[ "${TARGET_PLATFORM}" == osx-arm64 ]]; then
     export CONDA_OVERRIDE_OSX=11.0
 fi
 
+# Constructor requires an explicit bootstrap when targeting a different architecture.
+PLATFORM_ARGS=(--platform "${TARGET_PLATFORM}")
+if [[ "${TARGET_PLATFORM}" == win-arm64 ]]; then
+    CONDA_EXE=$(python -c 'import sys; from pathlib import Path; print(Path(sys.prefix, "standalone_conda", "conda.exe").as_posix())')
+    PLATFORM_ARGS+=(--conda-exe "${CONDA_EXE}")
+fi
+
 echo "***** Construct the installer(s) *****"
 # Transmutation requires the current directory is writable
 cd "${TEMP_DIR}"
 # shellcheck disable=SC2086
-constructor "${TEMP_DIR}/Miniforge3/" --platform "${TARGET_PLATFORM}" --output-dir "${TEMP_DIR}" ${EXTRA_CONSTRUCTOR_ARGS}
+constructor "${TEMP_DIR}/Miniforge3/" "${PLATFORM_ARGS[@]}" --output-dir "${TEMP_DIR}" ${EXTRA_CONSTRUCTOR_ARGS}
 cd -
 
 echo "***** Generate installer hash *****"
