@@ -16,19 +16,20 @@ jobs:
           miniforge-version: latest
           architecture: x64
           use-mamba: true
-      - name: Fetch retained Conda package
+      - name: Fetch retained Conda and Constructor packages
         shell: pwsh
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           gh run download 34523353459 --repo ClayWarren/conda-feedstock --name conda320-win-arm64 --dir local-channel/win-arm64
           if ($LASTEXITCODE) { exit $LASTEXITCODE }
-      - name: Build unchanged Constructor PR 108 recipe
+          gh run download 34530407437 --repo ClayWarren/miniforge --name arm64-integration-build --dir .
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+      - name: Prepare tested prerequisite channel
         shell: bash
         run: |
           source "${CONDA}/Scripts/activate"
-          conda install -y -n base -c conda-forge --override-channels rattler-build conda-index
-          rattler-build build --recipe validation/constructor-recipe/recipe.yaml --variant-config validation/variants.yaml --target-platform win-64 --output-dir local-channel
+          conda install -y -n base -c conda-forge --override-channels conda-index
           python validation/prepare.py
       - name: Build and test with integration scripts
         shell: bash

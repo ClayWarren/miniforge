@@ -8,6 +8,9 @@ root = Path.cwd()
 channel = root / 'local-channel'
 pkg = channel / 'win-arm64/conda-26.7.2-py314hc6eccd4_1.conda'
 assert hashlib.sha256(pkg.read_bytes()).hexdigest() == '3d039566740eb1c89987100a03d9b06e4ac4c1a562f12700516d5af1d59d47ec'
+constructor = channel / 'noarch/constructor-3.17.1-pyh97f482f_0.conda'
+assert hashlib.sha256(constructor.read_bytes()).hexdigest() == '52ff87df77b44931d09b7490185cb5ee0db7068f339a6296969208f0052b300c'
+(channel / 'win-64').mkdir(exist_ok=True)
 subprocess.run([sys.executable, '-m', 'conda_index', str(channel)], check=True)
 (root / 'validation/condarc').write_text(
     'custom_multichannels:\n  validation:\n    - ' + channel.as_uri() + '\n    - conda-forge\n'
