@@ -76,8 +76,8 @@ fi
 # Constructor requires an explicit bootstrap when targeting a different architecture.
 PLATFORM_ARGS=(--platform "${TARGET_PLATFORM}")
 if [[ "${TARGET_PLATFORM}" == win-arm64 ]]; then
-    CONDA_EXE=$(python -c 'import sys; from pathlib import Path; print(Path(sys.prefix, "standalone_conda", "conda.exe").as_posix())')
-    PLATFORM_ARGS+=(--conda-exe "${CONDA_EXE}")
+    CONSTRUCTOR_CONDA_EXE=$(python -c 'import sys; from pathlib import Path; print(Path(sys.prefix, "standalone_conda", "conda.exe").as_posix())')
+    PLATFORM_ARGS+=(--conda-exe "${CONSTRUCTOR_CONDA_EXE}")
 fi
 
 echo "***** Construct the installer(s) *****"
