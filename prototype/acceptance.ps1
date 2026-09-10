@@ -58,7 +58,7 @@ try {
     $links = @(Save-Shortcuts $prefix 'shortcuts-installed')
     if ($links.Count -lt 1) { throw 'No installed shortcut targets this prefix' }
     if (-not ($links | Where-Object { $_.arguments -like '*activate.bat*' })) { throw 'Prompt shortcut does not invoke activation' }
-    $child = Join-Path $env:RUNNER_TEMP 'Miniforge ARM64 Child'
+    $child = Join-Path $env:RUNNER_TEMP 'MiniforgeARM64Child'
     & $conda create -y -p $child --override-channels -c conda-forge python=3.14 zlib
     Require-Success 'Conda create'
     & $mamba install -y -p $child --override-channels -c conda-forge six
